@@ -47,6 +47,7 @@ bool FMatchmakingInterfacePlayFab::CreateMatchMakingTicket(const TArray< TShared
 	}
 
 	TArray<PFEntityKey> LocalEntityKeys;
+	TArray<PFEntityKey> RemoteEntityKeys;
 	for (int32 i = 0; i < LocalPlayers.Num(); ++i)
 	{
 		TSharedPtr<FPlayFabUser> LocalUser = PlayFabIdentityInt->GetPartyLocalUserFromPlatformId(LocalPlayers[i].Get());
@@ -54,15 +55,15 @@ bool FMatchmakingInterfacePlayFab::CreateMatchMakingTicket(const TArray< TShared
 		if (LocalUser == nullptr)
 		{
 			TSharedPtr<FPlayFabUser> RemoteUser = PlayFabIdentityInt->GetRemoteUserFromPlatformId(LocalPlayers[i].Get());
-			if (RemoteUser == nullptr)
+			if (RemoteUser != nullptr)
 			{
-				UE_LOG_ONLINE(Error, TEXT("CreateMatchMakingTicket GetPartyLocalUserFromPlatformId returned empty user for %s!"), *LocalPlayers[i]->ToDebugString());
-				return false;
+				PFEntityKey EntityKey = RemoteUser->GetEntityKey();
+				RemoteEntityKeys.Add(EntityKey);
+				continue;
 			}
-
-			PFEntityKey EntityKey = RemoteUser->GetEntityKey();
-			LocalEntityKeys.Add(EntityKey);
-			continue;
+			
+			UE_LOG_ONLINE(Error, TEXT("CreateMatchMakingTicket GetPartyLocalUserFromPlatformId returned empty user for %s!"), *LocalPlayers[i]->ToDebugString());
+			return false;
 		}
 
 		PFEntityKey EntityKey = LocalUser->GetEntityKey();
@@ -80,12 +81,15 @@ bool FMatchmakingInterfacePlayFab::CreateMatchMakingTicket(const TArray< TShared
 	// If the timeout is negative we set the max timeout from the service side, which is 1 hour.
 	const uint32_t ticketTimeoutInSeconds = (SearchSettings->TimeoutInSeconds < 0) ? 3600 : static_cast<uint32_t>(SearchSettings->TimeoutInSeconds);
 
+	const uint32_t membersToMatchWithCount = static_cast<uint32_t>(RemoteEntityKeys.Num());
+	const PFEntityKey* membersToMatchWith = !RemoteEntityKeys.IsEmpty() ? RemoteEntityKeys.GetData() : nullptr;
+
 	PFMatchmakingTicketConfiguration MatchConfig =
 	{
 		ticketTimeoutInSeconds,
 		QueueNameStr.c_str(),
-		0,
-		nullptr
+		membersToMatchWithCount,
+		membersToMatchWith
 	};
 
 	FString UserAttributes;
@@ -137,7 +141,7 @@ bool FMatchmakingInterfacePlayFab::CreateMatchMakingTicket(const TArray< TShared
 	MatchmakingTicketPtr->SessionSettings = NewSessionSettings;
 	MatchmakingTicketPtr->PlayFabMatchTicket = MatchTicket;
 	MatchmakingTicketPtr->SetHostUser(FirstUser);
-	MatchmakingTicketPtr->SearchingPlayerNetId = FUniqueNetIdPlayFab::Create(LocalPlayers[0].Get());
+	MatchmakingTicketPtr->SearchingPlayerNetId = FUniqueNetIdPlayFab::Create(LocalPlayers[0].Get());	
 
 	return true;
 }
@@ -200,7 +204,7 @@ void FMatchmakingInterfacePlayFab::DoWork()
 			}
 			default:
 			{
-				UE_LOG_ONLINE(Verbose, TEXT("Received PlayFab Unhandled(%u) event in FMatchmakingInterfacePlayFab"), StateChange.stateChangeType);
+				UE_LOG_ONLINE(Log, TEXT("Received PlayFab Unhandled(%u) event in FMatchmakingInterfacePlayFab"), StateChange.stateChangeType);
 				break;
 			}
 		}
@@ -216,14 +220,43 @@ void FMatchmakingInterfacePlayFab::HandleMatchmakingTicketStatusChanged(const PF
 {
 	PFMatchmakingTicketStatus Status;
 	HRESULT Hr = PFMatchmakingTicketGetStatus(StateChange.ticket, &Status);
-	UE_LOG_ONLINE(Verbose, TEXT("FMatchmakingInterfacePlayFab::HandleMatchmakingTicketStatusChanged(%u) event: for ticket (%p), Status: (%u). ErrorCode=[0x%08x], Error message:%s"), StateChange.stateChangeType, StateChange.ticket, Status, Hr, *GetMultiplayerErrorMessage(Hr));
+	UE_LOG_ONLINE(Log, TEXT("FMatchmakingInterfacePlayFab::HandleMatchmakingTicketStatusChanged(%u) event: for ticket (%p), Status: (%u). ErrorCode=[0x%08x], Error message:%s"), StateChange.stateChangeType, StateChange.ticket, Status, Hr, *GetMultiplayerErrorMessage(Hr));
 
 	FName SessionName;
 	FOnlineMatchmakingTicketInfoPtr Ticket;
 	if (GetMatchmakingTicketFromPlayFabTicket(StateChange.ticket, SessionName, Ticket))
 	{
 		bool isRemoved = false;
-		OnMatchmakingStatusChanged(SessionName, Ticket, isRemoved);
+
+		// TODO: update ticket with relevant status
+		switch (Status)
+		{
+			case PFMatchmakingTicketStatus::Creating: 
+				OnMatchmakingStatusChanged(SessionName, Ticket, isRemoved);
+				break;
+			case PFMatchmakingTicketStatus::Joining:
+				OnMatchmakingStatusChanged(SessionName, Ticket, isRemoved);
+				break;
+			case PFMatchmakingTicketStatus::WaitingForPlayers:
+				Ticket->MatchmakingState = EOnlinePlayFabMatchmakingState::WaitingForPlayers;
+				OnMatchmakingStatusChanged(SessionName, Ticket, isRemoved);
+				break;
+			case PFMatchmakingTicketStatus::WaitingForMatch:
+				OnMatchmakingStatusChanged(SessionName, Ticket, isRemoved);
+				break;
+			case PFMatchmakingTicketStatus::Matched:
+				OnMatchmakingStatusChanged(SessionName, Ticket, isRemoved);
+				break;
+			case PFMatchmakingTicketStatus::Canceled:
+				OnMatchmakingStatusChanged(SessionName, Ticket, isRemoved);
+				break;
+			case PFMatchmakingTicketStatus::Failed:
+				OnMatchmakingStatusChanged(SessionName, Ticket, isRemoved);
+				break;
+			default:
+				OnMatchmakingStatusChanged(SessionName, Ticket, isRemoved);
+				break;
+		}			
 	}
 	else
 	{
@@ -235,7 +268,7 @@ void FMatchmakingInterfacePlayFab::HandleMatchmakingTicketCompleted(const PFMatc
 {
 	PFMatchmakingTicketStatus Status;
 	HRESULT Hr = PFMatchmakingTicketGetStatus(StateChange.ticket, &Status);
-	UE_LOG_ONLINE(Verbose, TEXT("FMatchmakingInterfacePlayFab::HandleMatchmakingTicketCompleted(%u) event: for ticket (%p), Status: (%u). ErrorCode=[0x%08x], Error message:%s"), StateChange.stateChangeType, StateChange.ticket, Status, Hr, *GetMultiplayerErrorMessage(Hr));
+	UE_LOG_ONLINE(Log, TEXT("FMatchmakingInterfacePlayFab::HandleMatchmakingTicketCompleted(%u) event: for ticket (%p), Status: (%u). ErrorCode=[0x%08x], Error message:%s"), StateChange.stateChangeType, StateChange.ticket, Status, Hr, *GetMultiplayerErrorMessage(Hr));
 
 	FOnlineMatchmakingTicketInfoPtr Ticket;
 	FName SessionName;
@@ -296,11 +329,40 @@ void FMatchmakingInterfacePlayFab::OnMatchmakingStatusChanged(const FName Sessio
 {
 	if (!Ticket.IsValid())
 	{
+		UE_LOG_ONLINE_SESSION(Error, TEXT("Ticket is not valid."));
 		return;
-	}
+	}	
 
 	switch (Ticket->MatchmakingState)
 	{
+		case EOnlinePlayFabMatchmakingState::CreatingTicket:
+		{
+			// TODO:
+			break;
+		}
+		case EOnlinePlayFabMatchmakingState::WaitingForPlayers:
+		{
+			const char* ticketIdCharPtr = nullptr;
+			auto hResult = PFMatchmakingTicketGetTicketId(Ticket->PlayFabMatchTicket, &ticketIdCharPtr);
+			const FString ticketId = FString(ANSI_TO_TCHAR(ticketIdCharPtr));
+
+			if (SUCCEEDED(hResult))
+			{
+				Ticket->TicketId = ticketId;
+			}
+
+			FSessionMatchmakingResultsPlayFab results;
+			results.TicketId = Ticket->TicketId;
+			results.QueueName = Ticket->QueueName;
+			results.Status = TEXT("WaitingForPlayers");
+
+			if (!results.TicketId.IsEmpty())
+			{
+				OnStartmatchmakingCompleteDelegate.ExecuteIfBound(SessionName, FOnlineError::Success(), results);
+			}
+
+			break;
+		}
 		case EOnlinePlayFabMatchmakingState::TicketCreated:
 		{
 			const char* ticketIdCharPtr = nullptr;
@@ -313,13 +375,38 @@ void FMatchmakingInterfacePlayFab::OnMatchmakingStatusChanged(const FName Sessio
 				return;
 			}
 
-			delete ticketIdCharPtr;
-			ticketIdCharPtr = nullptr;
+			FSessionMatchmakingResultsPlayFab results;
+			results.TicketId = ticketId;
+			results.QueueName = Ticket->QueueName;
+			results.Status = TEXT("TicketCreated");
+			
+			if (!results.TicketId.IsEmpty())
+			{
+				OnStartmatchmakingCompleteDelegate.ExecuteIfBound(SessionName, FOnlineError::Success(), results);
+			}
+
+			break;
+		}
+		case EOnlinePlayFabMatchmakingState::Waiting:
+		{
+			const char* ticketIdCharPtr = nullptr;
+			auto hResult = PFMatchmakingTicketGetTicketId(Ticket->PlayFabMatchTicket, &ticketIdCharPtr);
+			const FString ticketId = FString(ANSI_TO_TCHAR(ticketIdCharPtr));
+
+			if (!SUCCEEDED(hResult))
+			{
+				UE_LOG_ONLINE_SESSION(Error, TEXT("Failed to retrieve TicketId on TicketCreated. Reason: %s"), ANSI_TO_TCHAR(PFMultiplayerGetErrorMessage(hResult)));
+				return;
+			}
 
 			FSessionMatchmakingResultsPlayFab results;
 			results.TicketId = ticketId;
 			results.QueueName = Ticket->QueueName;
-			OnStartmatchmakingCompleteDelegate.ExecuteIfBound(SessionName, FOnlineError::Success(), results);
+			results.Status = TEXT("Waiting");
+			if (!results.TicketId.IsEmpty())
+			{
+				OnStartmatchmakingCompleteDelegate.ExecuteIfBound(SessionName, FOnlineError::Success(), results);
+			}
 
 			break;
 		}
@@ -348,8 +435,7 @@ void FMatchmakingInterfacePlayFab::OnMatchmakingStatusChanged(const FName Sessio
 				}
 
 				const FString ticketId = FString(ANSI_TO_TCHAR(ticketIdCharPtr));
-				delete ticketIdCharPtr;
-				ticketIdCharPtr = nullptr;
+
 				const FString serverDetailsJsonStr = MakeMatchmakingMatchDetailsJsonString(Ticket->PlayFabMatchmakingDetails, ticketId, Ticket->QueueName);
 				NamedSession->SessionSettings.Set(FName(TEXT("MATCHMAKINGMATCHDETAILS")), serverDetailsJsonStr, EOnlineDataAdvertisementType::ViaOnlineService);
 
@@ -370,7 +456,7 @@ void FMatchmakingInterfacePlayFab::OnMatchmakingStatusChanged(const FName Sessio
 		}
 		case EOnlinePlayFabMatchmakingState::Cancelled:
 		{
-			UE_LOG_ONLINE(Verbose, TEXT("FMatchmakingInterfacePlayFab::OnMatchmakingStatusChanged Cancelled"));
+			UE_LOG_ONLINE(Log, TEXT("FMatchmakingInterfacePlayFab::OnMatchmakingStatusChanged Cancelled"));
 			TriggerOnCancelMatchmakingCompleteDelegates(SessionName, true);
 			RemoveMatchmakingTicket(SessionName);
 			isRemoved = true;
@@ -378,7 +464,7 @@ void FMatchmakingInterfacePlayFab::OnMatchmakingStatusChanged(const FName Sessio
 		}
 		case EOnlinePlayFabMatchmakingState::Failed:
 		{
-			UE_LOG_ONLINE(Verbose, TEXT("FMatchmakingInterfacePlayFab::OnMatchmakingStatusChanged Failed"));
+			UE_LOG_ONLINE(Log, TEXT("FMatchmakingInterfacePlayFab::OnMatchmakingStatusChanged Failed"));
 			TriggerOnMatchmakingTicketCompletedDelegates(false, SessionName);
 
 			PFMatchmakingTicketStatus Status;

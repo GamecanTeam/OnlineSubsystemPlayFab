@@ -305,4 +305,5 @@ struct FSessionMatchmakingResultsPlayFab : public FSessionMatchmakingResults
 {
 	FString TicketId;
 	FString QueueName;
+	FString Status;
 };

@@ -211,6 +211,7 @@ namespace EOnlinePlayFabMatchmakingState
 		Failed,
 		JoiningArrangedLobby,
 		JoinArrangedLobbyCompleted,
+		WaitingForPlayers,
 	};
 }
 

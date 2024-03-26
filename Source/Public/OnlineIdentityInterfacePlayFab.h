@@ -55,6 +55,8 @@ public:
 		: PlatformUserIdStr(platformUserIdStrIn)
 		, EntityId(entityIdIn)
 		, EntityType(entityTypeIn)
+		, EntityIdStr(TCHAR_TO_UTF8(*entityIdIn))
+		, EntityTypeStr(TCHAR_TO_UTF8(*entityTypeIn))
 		, PlayFabId(playFabIdIn)
 	{
 	}
