@@ -247,16 +247,16 @@ void FMatchmakingInterfacePlayFab::HandleMatchmakingTicketStatusChanged(const PF
 				OnMatchmakingStatusChanged(SessionName, Ticket, isRemoved);
 				break;
 			case PFMatchmakingTicketStatus::Matched:
-				Ticket->MatchmakingState = EOnlinePlayFabMatchmakingState::MatchFound;
-				OnMatchmakingStatusChanged(SessionName, Ticket, isRemoved); 
+				//Ticket->MatchmakingState = EOnlinePlayFabMatchmakingState::MatchFound; // NOTE: this is being handled on HandleMatchmakingTicketCompleted
+				//OnMatchmakingStatusChanged(SessionName, Ticket, isRemoved); 
 				break;
 			case PFMatchmakingTicketStatus::Canceled:
-				Ticket->MatchmakingState = EOnlinePlayFabMatchmakingState::Cancelled;
-				OnMatchmakingStatusChanged(SessionName, Ticket, isRemoved);
+				//Ticket->MatchmakingState = EOnlinePlayFabMatchmakingState::Cancelled; // NOTE: this is being handled on HandleMatchmakingTicketCompleted
+				//OnMatchmakingStatusChanged(SessionName, Ticket, isRemoved);
 				break;
 			case PFMatchmakingTicketStatus::Failed:
-				Ticket->MatchmakingState = EOnlinePlayFabMatchmakingState::Failed;
-				OnMatchmakingStatusChanged(SessionName, Ticket, isRemoved);
+				//Ticket->MatchmakingState = EOnlinePlayFabMatchmakingState::Failed; // NOTE: this is being handled on HandleMatchmakingTicketCompleted
+				//OnMatchmakingStatusChanged(SessionName, Ticket, isRemoved);
 				break;
 		}			
 	}
