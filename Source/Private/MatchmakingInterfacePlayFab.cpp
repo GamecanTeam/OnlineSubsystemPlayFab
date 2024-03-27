@@ -228,13 +228,14 @@ void FMatchmakingInterfacePlayFab::HandleMatchmakingTicketStatusChanged(const PF
 	{
 		bool isRemoved = false;
 
-		// TODO: update ticket with relevant status
 		switch (Status)
 		{
-			case PFMatchmakingTicketStatus::Creating: 
+			case PFMatchmakingTicketStatus::Creating:
+				Ticket->MatchmakingState = EOnlinePlayFabMatchmakingState::CreatingTicket;
 				OnMatchmakingStatusChanged(SessionName, Ticket, isRemoved);
 				break;
 			case PFMatchmakingTicketStatus::Joining:
+				Ticket->MatchmakingState = EOnlinePlayFabMatchmakingState::JoiningArrangedLobby; // TODO: ?
 				OnMatchmakingStatusChanged(SessionName, Ticket, isRemoved);
 				break;
 			case PFMatchmakingTicketStatus::WaitingForPlayers:
@@ -242,18 +243,19 @@ void FMatchmakingInterfacePlayFab::HandleMatchmakingTicketStatusChanged(const PF
 				OnMatchmakingStatusChanged(SessionName, Ticket, isRemoved);
 				break;
 			case PFMatchmakingTicketStatus::WaitingForMatch:
+				Ticket->MatchmakingState = EOnlinePlayFabMatchmakingState::Waiting; // TODO: ?
 				OnMatchmakingStatusChanged(SessionName, Ticket, isRemoved);
 				break;
 			case PFMatchmakingTicketStatus::Matched:
-				OnMatchmakingStatusChanged(SessionName, Ticket, isRemoved);
+				Ticket->MatchmakingState = EOnlinePlayFabMatchmakingState::MatchFound;
+				OnMatchmakingStatusChanged(SessionName, Ticket, isRemoved); 
 				break;
 			case PFMatchmakingTicketStatus::Canceled:
+				Ticket->MatchmakingState = EOnlinePlayFabMatchmakingState::Cancelled;
 				OnMatchmakingStatusChanged(SessionName, Ticket, isRemoved);
 				break;
 			case PFMatchmakingTicketStatus::Failed:
-				OnMatchmakingStatusChanged(SessionName, Ticket, isRemoved);
-				break;
-			default:
+				Ticket->MatchmakingState = EOnlinePlayFabMatchmakingState::Failed;
 				OnMatchmakingStatusChanged(SessionName, Ticket, isRemoved);
 				break;
 		}			
